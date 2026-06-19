@@ -11,19 +11,31 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Unzip source
+      - name: Pick and unzip source
+        shell: bash
         run: |
-          rm -rf extracted
-          mkdir extracted
+          set -e
 
-          echo "Files in repository:"
+          rm -rf extracted
+          mkdir -p extracted
+
+          echo "Repository files:"
           ls -la
 
-          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+          ZIP_FILE="$(find . -maxdepth 1 -type f \( -iname "*HaoAYou*.zip" -o -iname "*haoyou*.zip" -o -iname "*好啊有*.zip" \) | sort | head -n 1)"
+
+          if [ -z "$ZIP_FILE" ]; then
+            ZIP_FILE="$(find . -maxdepth 1 -type f -iname "*.zip" | sort | head -n 1)"
+          fi
 
           if [ -z "$ZIP_FILE" ]; then
             echo "No ZIP file found in repository root."
@@ -33,15 +45,15 @@ jobs:
           echo "Using ZIP file: $ZIP_FILE"
           unzip -q "$ZIP_FILE" -d extracted
 
-          PROJECT_FILE=$(find extracted -type f \( -name "settings.gradle.kts" -o -name "settings.gradle" \) | head -n 1)
+          PROJECT_FILE="$(find extracted -type f \( -name "settings.gradle.kts" -o -name "settings.gradle" \) | head -n 1)"
 
           if [ -z "$PROJECT_FILE" ]; then
             echo "No Gradle project found after unzip."
-            find extracted -maxdepth 3 -type f | head -n 80
+            find extracted -maxdepth 4 -type f | head -n 120
             exit 1
           fi
 
-          PROJECT_DIR=$(dirname "$PROJECT_FILE")
+          PROJECT_DIR="$(dirname "$PROJECT_FILE")"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "Project dir: $PROJECT_DIR"
 
@@ -51,21 +63,102 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Accept Android licenses
+      - name: Prepare Android SDK
+        shell: bash
         run: |
-          yes | sdkmanager --licenses || true
+          set -e
+
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -path "*/bin/sdkmanager" -type f | sort | tail -n 1)"
+          fi
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "sdkmanager not found."
+            exit 1
+          fi
+
+          echo "Using sdkmanager: $SDKMANAGER"
+
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+
+          "$SDKMANAGER" --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "cmake;3.22.1" \
+            "ndk;29.0.14206865"
+
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-download-base-url: https://github.com/MetaCubeX/go/releases/download/build
+          go-version: "1.26"
+
+      - name: Ensure mihomo core source exists
+        shell: bash
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR"
+
+          if [ ! -d "core/src/foss/golang/clash" ] || [ -z "$(ls -A core/src/foss/golang/clash 2>/dev/null)" ]; then
+            echo "mihomo core source is missing. Cloning..."
+            rm -rf core/src/foss/golang/clash
+            mkdir -p core/src/foss/golang
+            git clone --depth 1 --branch Alpha https://github.com/MetaCubeX/mihomo core/src/foss/golang/clash
+          else
+            echo "mihomo core source already exists."
+          fi
+
+      - name: Apply Go patches
+        shell: bash
+        run: |
+          set -e
+
+          cd "$(go env GOROOT)"
+
+          PATCH_DIR="$GITHUB_WORKSPACE/$PROJECT_DIR/.github/patch"
+
+          if [ -d "$PATCH_DIR" ]; then
+            for p in "$PATCH_DIR"/*.patch; do
+              [ -f "$p" ] || continue
+              echo "Applying patch: $p"
+              patch --verbose -p 1 < "$p"
+            done
+          else
+            echo "No patch directory found."
+          fi
+
+      - name: Update CA bundle
+        shell: bash
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR"
+
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates
+          sudo update-ca-certificates
+
+          mkdir -p core/src/foss/golang/clash/component/ca
+          cp -f /etc/ssl/certs/ca-certificates.crt core/src/foss/golang/clash/component/ca/ca-certificates.crt
 
       - name: Build debug APK
+        shell: bash
         run: |
+          set -e
+
           cd "$PROJECT_DIR"
           chmod +x ./gradlew
-          ./gradlew assembleDebug
+          ./gradlew --no-daemon app:assembleAlphaDebug --stacktrace
 
       - name: Collect APK
+        shell: bash
         run: |
+          set -e
+
           rm -rf apk-output
           mkdir -p apk-output
 
@@ -73,6 +166,13 @@ jobs:
           find "$PROJECT_DIR" -type f -name "*.apk" -print
 
           find "$PROJECT_DIR" -type f -name "*.apk" -exec cp -v {} apk-output/ \;
+
+          APK_COUNT="$(find apk-output -type f -name "*.apk" | wc -l)"
+
+          if [ "$APK_COUNT" -eq 0 ]; then
+            echo "No APK files were generated."
+            exit 1
+          fi
 
           echo "Collected APK files:"
           ls -la apk-output
