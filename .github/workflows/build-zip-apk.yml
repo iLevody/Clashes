@@ -7,6 +7,9 @@ on:
       - "*.zip"
       - ".github/workflows/build-zip-apk.yml"
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -20,10 +23,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Pick and unzip source
+      - name: Show workflow version
         shell: bash
         run: |
-          set -e
+          echo "好啊有 ZIP APK workflow fixed version 2026-06-19-2"
+
+      - name: Pick and unzip source ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
 
           rm -rf extracted
           mkdir -p extracted
@@ -31,24 +39,24 @@ jobs:
           echo "Repository files:"
           ls -la
 
-          ZIP_FILE="$(find . -maxdepth 1 -type f \( -iname "*HaoAYou*.zip" -o -iname "*haoyou*.zip" -o -iname "*好啊有*.zip" \) | sort | head -n 1)"
+          ZIP_FILE="$(find . -maxdepth 1 -type f \( -iname "*HaoAYou*.zip" -o -iname "*haoyou*.zip" -o -iname "*好啊有*.zip" \) | sort | head -n 1 || true)"
 
           if [ -z "$ZIP_FILE" ]; then
-            ZIP_FILE="$(find . -maxdepth 1 -type f -iname "*.zip" | sort | head -n 1)"
+            ZIP_FILE="$(find . -maxdepth 1 -type f -iname "*.zip" | sort | head -n 1 || true)"
           fi
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "No ZIP file found in repository root."
+            echo "No ZIP file found in repository root. Upload HaoAYou-purple-glass-source.zip to the repository root."
             exit 1
           fi
 
           echo "Using ZIP file: $ZIP_FILE"
           unzip -q "$ZIP_FILE" -d extracted
 
-          PROJECT_FILE="$(find extracted -type f \( -name "settings.gradle.kts" -o -name "settings.gradle" \) | head -n 1)"
+          PROJECT_FILE="$(find extracted -type f \( -name "settings.gradle.kts" -o -name "settings.gradle" \) | head -n 1 || true)"
 
           if [ -z "$PROJECT_FILE" ]; then
-            echo "No Gradle project found after unzip."
+            echo "No Gradle project found after unzip. The ZIP must contain Android source files, not another nested ZIP."
             find extracted -maxdepth 4 -type f | head -n 120
             exit 1
           fi
@@ -66,15 +74,15 @@ jobs:
       - name: Prepare Android SDK
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
 
           if [ ! -x "$SDKMANAGER" ]; then
-            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -path "*/bin/sdkmanager" -type f | sort | tail -n 1)"
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -path "*/bin/sdkmanager" -type f | sort | tail -n 1 || true)"
           fi
 
-          if [ -z "$SDKMANAGER" ]; then
+          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
             echo "sdkmanager not found."
             exit 1
           fi
@@ -82,8 +90,7 @@ jobs:
           echo "Using sdkmanager: $SDKMANAGER"
 
           yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
-
-          "$SDKMANAGER" --install \
+          yes | "$SDKMANAGER" --install \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0" \
@@ -99,11 +106,11 @@ jobs:
       - name: Ensure mihomo core source exists
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
           cd "$PROJECT_DIR"
 
-          if [ ! -d "core/src/foss/golang/clash" ] || [ -z "$(ls -A core/src/foss/golang/clash 2>/dev/null)" ]; then
+          if [ ! -d "core/src/foss/golang/clash" ] || [ -z "$(ls -A core/src/foss/golang/clash 2>/dev/null || true)" ]; then
             echo "mihomo core source is missing. Cloning..."
             rm -rf core/src/foss/golang/clash
             mkdir -p core/src/foss/golang
@@ -115,13 +122,12 @@ jobs:
       - name: Apply Go patches
         shell: bash
         run: |
-          set -e
-
-          cd "$(go env GOROOT)"
+          set -euo pipefail
 
           PATCH_DIR="$GITHUB_WORKSPACE/$PROJECT_DIR/.github/patch"
 
           if [ -d "$PATCH_DIR" ]; then
+            cd "$(go env GOROOT)"
             for p in "$PATCH_DIR"/*.patch; do
               [ -f "$p" ] || continue
               echo "Applying patch: $p"
@@ -134,7 +140,7 @@ jobs:
       - name: Update CA bundle
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
           cd "$PROJECT_DIR"
 
@@ -148,7 +154,7 @@ jobs:
       - name: Build debug APK
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
           cd "$PROJECT_DIR"
           chmod +x ./gradlew
@@ -157,7 +163,7 @@ jobs:
       - name: Collect APK
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
           rm -rf apk-output
           mkdir -p apk-output
