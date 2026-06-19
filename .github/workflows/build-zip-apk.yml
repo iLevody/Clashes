@@ -28,7 +28,7 @@ jobs:
       - name: Show workflow version
         shell: bash
         run: |
-          echo "好啊有 ZIP APK workflow fixed version 2026-06-19-4"
+          echo "好啊有 ZIP APK workflow fixed version 2026-06-19-5"
 
       - name: Pick, unzip, and normalize source path
         shell: bash
@@ -66,8 +66,6 @@ jobs:
           RAW_PROJECT_DIR="$(dirname "$PROJECT_FILE")"
           echo "Raw project dir: $RAW_PROJECT_DIR"
 
-          # Always copy into an ASCII-only path. Some Java/Gradle/NDK tools can fail when the
-          # extracted project folder contains Chinese characters or other non-ASCII characters.
           cp -a "$RAW_PROJECT_DIR"/. project-src/
 
           echo "PROJECT_DIR=project-src" >> "$GITHUB_ENV"
@@ -162,6 +160,50 @@ jobs:
 
           mkdir -p core/src/foss/golang/clash/component/ca
           cp -f /etc/ssl/certs/ca-certificates.crt core/src/foss/golang/clash/component/ca/ca-certificates.crt
+
+      - name: Patch CMake git metadata for ZIP builds
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd "$PROJECT_DIR"
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("core/src/main/cpp/CMakeLists.txt")
+          s = p.read_text(encoding="utf-8")
+          marker = "project(clash-bridge C)"
+
+          if marker not in s:
+              raise SystemExit("CMake marker not found")
+
+          rest = s[s.index(marker):]
+          prefix = r'''cmake_minimum_required(VERSION 3.0)
+
+message(STATUS "CMAKE_CURRENT_SOURCE_DIR= ${CMAKE_CURRENT_SOURCE_DIR}")
+
+set(COMMIT_HASH "zipbuild")
+set(CURRENT_BRANCH "alpha")
+
+string(TIMESTAMP COMPILE_TIME "%y%m%d")
+string(REGEX REPLACE "[\n\t\r]" "" COMPILE_TIME "${COMPILE_TIME}")
+string(REGEX REPLACE "\"" "" COMPILE_TIME "${COMPILE_TIME}")
+
+set(GIT_VERSION "${CURRENT_BRANCH}_${COMMIT_HASH}_${COMPILE_TIME}")
+message(STATUS "git hash= ${COMMIT_HASH}")
+message(STATUS "git current branch = ${CURRENT_BRANCH}")
+message(STATUS "version info = ${GIT_VERSION}")
+
+string(REGEX REPLACE "[ ]+" "" GIT_VERSION "${GIT_VERSION}")
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/version.h.in ${CMAKE_CURRENT_SOURCE_DIR}/version.h @ONLY)
+
+'''
+          p.write_text(prefix + rest, encoding="utf-8")
+          print("Patched", p)
+          PY
+
+          sed -n '1,45p' core/src/main/cpp/CMakeLists.txt
 
       - name: Build debug APK
         shell: bash
