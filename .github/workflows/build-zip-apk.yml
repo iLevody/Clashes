@@ -19,8 +19,29 @@ jobs:
         run: |
           rm -rf extracted
           mkdir extracted
-          unzip -q HaoAYou-purple-glass-source.zip -d extracted
-          PROJECT_DIR=$(find extracted -name "settings.gradle.kts" -o -name "settings.gradle" | head -n 1 | xargs dirname)
+
+          echo "Files in repository:"
+          ls -la
+
+          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "No ZIP file found in repository root."
+            exit 1
+          fi
+
+          echo "Using ZIP file: $ZIP_FILE"
+          unzip -q "$ZIP_FILE" -d extracted
+
+          PROJECT_FILE=$(find extracted -type f \( -name "settings.gradle.kts" -o -name "settings.gradle" \) | head -n 1)
+
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "No Gradle project found after unzip."
+            find extracted -maxdepth 3 -type f | head -n 50
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$PROJECT_FILE")
           echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
           echo "Project dir: $PROJECT_DIR"
 
