@@ -26,7 +26,7 @@ jobs:
       - name: Show workflow version
         shell: bash
         run: |
-          echo "好啊有 ZIP APK workflow fixed version 2026-06-19-2"
+          echo "好啊有 ZIP APK workflow fixed version 2026-06-19-3"
 
       - name: Pick and unzip source ZIP
         shell: bash
@@ -89,13 +89,20 @@ jobs:
 
           echo "Using sdkmanager: $SDKMANAGER"
 
-          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
-          yes | "$SDKMANAGER" --install \
+          # Accept existing licenses. The `yes` command may receive SIGPIPE after sdkmanager exits;
+          # keep this command non-fatal so pipefail does not break the workflow.
+          (yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null 2>&1) || true
+
+          # Do not pipe `yes` into sdkmanager --install. With pipefail enabled, `yes` can end
+          # with Broken pipe even when the SDK installation itself succeeds.
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --install \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0" \
             "cmake;3.22.1" \
             "ndk;29.0.14206865"
+
+          (yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null 2>&1) || true
 
       - name: Setup Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
