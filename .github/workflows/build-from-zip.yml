@@ -33,7 +33,7 @@ jobs:
           rm -rf work
           mkdir -p work
           unzip -q source.zip -d work
-          SETTINGS_FILE="$(find work -name "settings.gradle.kts" -o -name "settings.gradle" | head -n 1)"
+          SETTINGS_FILE="$(find work \( -name "settings.gradle.kts" -o -name "settings.gradle" \) | head -n 1)"
           test -n "$SETTINGS_FILE"
           PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
@@ -88,7 +88,7 @@ jobs:
         run: |
           set -euxo pipefail
           cd "$PROJECT_DIR"
-          ./gradlew --no-daemon :app:assembleAlphaRelease --stacktrace
+          ./gradlew --no-daemon :app:assembleAlphaRelease --stacktrace --info
           find . -type f -name "*.apk" -print
 
       - name: Upload APK
