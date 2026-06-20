@@ -3,23 +3,36 @@ name: Build APK From ZIP
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+env:
+  ANDROID_NDK_VERSION: 29.0.14206865
+
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Unzip source
+        shell: bash
         run: |
+          set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y unzip
+          sudo apt-get install -y unzip git ninja-build
+          test -f source.zip
+          rm -rf work
           mkdir -p work
           unzip -q source.zip -d work
-          PROJECT_DIR=$(find work -name "settings.gradle.kts" -o -name "settings.gradle" | head -n 1 | xargs dirname)
-          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
+          SETTINGS_FILE="$(find work -name "settings.gradle.kts" -o -name "settings.gradle" | head -n 1)"
+          test -n "$SETTINGS_FILE"
+          PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "Project dir: $PROJECT_DIR"
+          ls -la "$PROJECT_DIR"
 
       - name: Setup JDK
         uses: actions/setup-java@v5
@@ -31,36 +44,50 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version: stable
+          cache: false
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
 
       - name: Install Android SDK packages
+        shell: bash
         run: |
-          yes | sdkmanager --licenses
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;29.0.14206865"
+          set -euxo pipefail
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;$ANDROID_NDK_VERSION" \
+            "cmake;3.22.1"
 
       - name: Restore mihomo core
+        shell: bash
         run: |
+          set -euxo pipefail
           cd "$PROJECT_DIR"
           rm -rf core/src/foss/golang/clash
           mkdir -p core/src/foss/golang
           git clone --depth=1 --branch Alpha https://github.com/MetaCubeX/mihomo.git core/src/foss/golang/clash
 
       - name: Make Gradle executable
+        shell: bash
         run: |
+          set -euxo pipefail
           cd "$PROJECT_DIR"
           chmod +x ./gradlew
 
       - name: Build APK
+        shell: bash
         run: |
+          set -euxo pipefail
           cd "$PROJECT_DIR"
-          ./gradlew :app:assembleAlphaFossRelease --stacktrace
+          ./gradlew --no-daemon :app:assembleAlphaRelease --stacktrace
+          find . -type f -name "*.apk" -print
 
       - name: Upload APK
         uses: actions/upload-artifact@v6
         with:
           name: cmfa-alpha-release-apk
-          path: |
-            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/**/*.apk
-            ${{ env.PROJECT_DIR }}/**/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          path: ${{ env.PROJECT_DIR }}/**/build/outputs/**/*.apk
