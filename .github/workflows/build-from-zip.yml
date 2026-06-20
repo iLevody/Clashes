@@ -59,13 +59,43 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager --install \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0" \
-            "ndk;$ANDROID_NDK_VERSION" \
-            "cmake;3.22.1"
+          {
+            yes | sdkmanager --licenses >/dev/null
+
+            sdkmanager --install \
+              "platform-tools" \
+              "platforms;android-35" \
+              "build-tools;35.0.0" \
+              "cmake;3.22.1"
+
+            AVAILABLE_NDKS="$(sdkmanager --list | awk -F'|' '/^[[:space:]]*ndk;[0-9]/{gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); print $1}')"
+            echo "Available NDK packages:"
+            echo "$AVAILABLE_NDKS"
+
+            REQUESTED_NDK="ndk;$ANDROID_NDK_VERSION"
+            if echo "$AVAILABLE_NDKS" | grep -Fxq "$REQUESTED_NDK"; then
+              NDK_PACKAGE="$REQUESTED_NDK"
+            else
+              echo "Requested NDK $REQUESTED_NDK is not listed by sdkmanager; using latest listed NDK instead."
+              NDK_PACKAGE="$(echo "$AVAILABLE_NDKS" | sort -V | tail -n 1)"
+            fi
+
+            if [ -z "$NDK_PACKAGE" ]; then
+              echo "No Android NDK package found in sdkmanager --list."
+              exit 1
+            fi
+
+            echo "Installing $NDK_PACKAGE"
+            sdkmanager --install "$NDK_PACKAGE"
+          } 2>&1 | tee "$RUNNER_TEMP/android-sdk-install.log"
+
+      - name: Upload Android SDK install log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-sdk-install-log
+          if-no-files-found: ignore
+          path: ${{ runner.temp }}/android-sdk-install.log
 
       - name: Restore mihomo core
         shell: bash
