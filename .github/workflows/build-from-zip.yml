@@ -88,8 +88,16 @@ jobs:
         run: |
           set -euxo pipefail
           cd "$PROJECT_DIR"
-          ./gradlew --no-daemon :app:assembleAlphaRelease --stacktrace --info
+          ./gradlew --no-daemon :app:assembleAlphaRelease --stacktrace --info 2>&1 | tee "$RUNNER_TEMP/gradle-build.log"
           find . -type f -name "*.apk" -print
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-build-log
+          if-no-files-found: ignore
+          path: ${{ runner.temp }}/gradle-build.log
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
