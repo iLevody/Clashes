@@ -1,0 +1,66 @@
+name: Build APK From ZIP
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v5
+
+      - name: Unzip source
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip
+          mkdir -p work
+          unzip -q source.zip -d work
+          PROJECT_DIR=$(find work -name "settings.gradle.kts" -o -name "settings.gradle" | head -n 1 | xargs dirname)
+          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
+          echo "Project dir: $PROJECT_DIR"
+
+      - name: Setup JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: stable
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;29.0.14206865"
+
+      - name: Restore mihomo core
+        run: |
+          cd "$PROJECT_DIR"
+          rm -rf core/src/foss/golang/clash
+          mkdir -p core/src/foss/golang
+          git clone --depth=1 --branch Alpha https://github.com/MetaCubeX/mihomo.git core/src/foss/golang/clash
+
+      - name: Make Gradle executable
+        run: |
+          cd "$PROJECT_DIR"
+          chmod +x ./gradlew
+
+      - name: Build APK
+        run: |
+          cd "$PROJECT_DIR"
+          ./gradlew :app:assembleAlphaFossRelease --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: cmfa-alpha-release-apk
+          path: |
+            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/**/*.apk
+            ${{ env.PROJECT_DIR }}/**/build/outputs/apk/**/*.apk
