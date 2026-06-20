@@ -28,7 +28,7 @@ jobs:
       - name: Show workflow version
         shell: bash
         run: |
-          echo "好啊有 ZIP APK workflow fixed version 2026-06-19-5"
+          echo "好啊有 ZIP APK workflow fixed version 2026-06-19-6"
 
       - name: Pick, unzip, and normalize source path
         shell: bash
@@ -48,7 +48,7 @@ jobs:
           fi
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "No ZIP file found in repository root. Upload HaoAYou-purple-glass-source.zip to the repository root."
+            echo "No ZIP file found in repository root."
             exit 1
           fi
 
@@ -58,19 +58,16 @@ jobs:
           PROJECT_FILE="$(find extracted -type f \( -name "settings.gradle.kts" -o -name "settings.gradle" \) | head -n 1 || true)"
 
           if [ -z "$PROJECT_FILE" ]; then
-            echo "No Gradle project found after unzip. The ZIP must contain Android source files, not another nested ZIP."
+            echo "No Gradle project found after unzip."
             find extracted -maxdepth 4 -type f | head -n 120
             exit 1
           fi
 
           RAW_PROJECT_DIR="$(dirname "$PROJECT_FILE")"
           echo "Raw project dir: $RAW_PROJECT_DIR"
-
           cp -a "$RAW_PROJECT_DIR"/. project-src/
-
           echo "PROJECT_DIR=project-src" >> "$GITHUB_ENV"
           echo "Project dir normalized to: project-src"
-          ls -la project-src | head -n 80
 
       - name: Setup JDK 21
         uses: actions/setup-java@v4
@@ -84,7 +81,6 @@ jobs:
           set -euo pipefail
 
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-
           if [ ! -x "$SDKMANAGER" ]; then
             SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -path "*/bin/sdkmanager" -type f | sort | tail -n 1 || true)"
           fi
@@ -95,7 +91,6 @@ jobs:
           fi
 
           echo "Using sdkmanager: $SDKMANAGER"
-
           (yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null 2>&1) || true
 
           "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --install \
@@ -117,7 +112,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           cd "$PROJECT_DIR"
 
           if [ ! -d "core/src/foss/golang/clash" ] || [ -z "$(ls -A core/src/foss/golang/clash 2>/dev/null || true)" ]; then
@@ -135,7 +129,6 @@ jobs:
           set -euo pipefail
 
           PATCH_DIR="$GITHUB_WORKSPACE/$PROJECT_DIR/.github/patch"
-
           if [ -d "$PATCH_DIR" ]; then
             cd "$(go env GOROOT)"
             for p in "$PATCH_DIR"/*.patch; do
@@ -151,7 +144,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           cd "$PROJECT_DIR"
 
           sudo apt-get update
@@ -165,40 +157,36 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           cd "$PROJECT_DIR"
 
           python3 - <<'PY'
           from pathlib import Path
-
           p = Path("core/src/main/cpp/CMakeLists.txt")
           s = p.read_text(encoding="utf-8")
           marker = "project(clash-bridge C)"
-
           if marker not in s:
               raise SystemExit("CMake marker not found")
-
           rest = s[s.index(marker):]
           prefix = r'''cmake_minimum_required(VERSION 3.0)
 
-message(STATUS "CMAKE_CURRENT_SOURCE_DIR= ${CMAKE_CURRENT_SOURCE_DIR}")
+          message(STATUS "CMAKE_CURRENT_SOURCE_DIR= ${CMAKE_CURRENT_SOURCE_DIR}")
 
-set(COMMIT_HASH "zipbuild")
-set(CURRENT_BRANCH "alpha")
+          set(COMMIT_HASH "zipbuild")
+          set(CURRENT_BRANCH "alpha")
 
-string(TIMESTAMP COMPILE_TIME "%y%m%d")
-string(REGEX REPLACE "[\n\t\r]" "" COMPILE_TIME "${COMPILE_TIME}")
-string(REGEX REPLACE "\"" "" COMPILE_TIME "${COMPILE_TIME}")
+          string(TIMESTAMP COMPILE_TIME "%y%m%d")
+          string(REGEX REPLACE "[\n\t\r]" "" COMPILE_TIME "${COMPILE_TIME}")
+          string(REGEX REPLACE "\"" "" COMPILE_TIME "${COMPILE_TIME}")
 
-set(GIT_VERSION "${CURRENT_BRANCH}_${COMMIT_HASH}_${COMPILE_TIME}")
-message(STATUS "git hash= ${COMMIT_HASH}")
-message(STATUS "git current branch = ${CURRENT_BRANCH}")
-message(STATUS "version info = ${GIT_VERSION}")
+          set(GIT_VERSION "${CURRENT_BRANCH}_${COMMIT_HASH}_${COMPILE_TIME}")
+          message(STATUS "git hash= ${COMMIT_HASH}")
+          message(STATUS "git current branch = ${CURRENT_BRANCH}")
+          message(STATUS "version info = ${GIT_VERSION}")
 
-string(REGEX REPLACE "[ ]+" "" GIT_VERSION "${GIT_VERSION}")
-configure_file(${CMAKE_CURRENT_SOURCE_DIR}/version.h.in ${CMAKE_CURRENT_SOURCE_DIR}/version.h @ONLY)
+          string(REGEX REPLACE "[ ]+" "" GIT_VERSION "${GIT_VERSION}")
+          configure_file(${CMAKE_CURRENT_SOURCE_DIR}/version.h.in ${CMAKE_CURRENT_SOURCE_DIR}/version.h @ONLY)
 
-'''
+          '''
           p.write_text(prefix + rest, encoding="utf-8")
           print("Patched", p)
           PY
@@ -209,7 +197,6 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/version.h.in ${CMAKE_CURRENT_SOURCE_D
         shell: bash
         run: |
           set -o pipefail
-
           cd "$PROJECT_DIR"
           chmod +x ./gradlew
 
@@ -218,7 +205,7 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/version.h.in ${CMAKE_CURRENT_SOURCE_D
 
           if [ "$BUILD_STATUS" -ne 0 ]; then
             echo "Gradle build failed. Error summary:"
-            grep -Ei "FAILURE:|What went wrong|Execution failed|Caused by:|error:|No such file|Exception" "$GITHUB_WORKSPACE/gradle-build.log" | tail -n 80 || true
+            grep -Ei "FAILURE:|What went wrong|Execution failed|Caused by:|error:|No such file|Exception|CMake Error" "$GITHUB_WORKSPACE/gradle-build.log" | tail -n 120 || true
             exit "$BUILD_STATUS"
           fi
 
@@ -227,17 +214,14 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/version.h.in ${CMAKE_CURRENT_SOURCE_D
         shell: bash
         run: |
           set -euo pipefail
-
           rm -rf apk-output
           mkdir -p apk-output
 
           echo "Searching APK files..."
           find "$PROJECT_DIR" -type f -name "*.apk" -print
-
           find "$PROJECT_DIR" -type f -name "*.apk" -exec cp -v {} apk-output/ \;
 
           APK_COUNT="$(find apk-output -type f -name "*.apk" | wc -l)"
-
           if [ "$APK_COUNT" -eq 0 ]; then
             echo "No APK files were generated."
             exit 1
