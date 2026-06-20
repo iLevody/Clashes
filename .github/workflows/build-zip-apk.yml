@@ -28,7 +28,7 @@ jobs:
       - name: Show workflow version
         shell: bash
         run: |
-          echo "好啊有 ZIP APK workflow fixed version 2026-06-19-6"
+          echo "好啊有 ZIP APK workflow fixed version 2026-06-20-7-soft-ui"
 
       - name: Pick, unzip, and normalize source path
         shell: bash
@@ -41,7 +41,12 @@ jobs:
           echo "Repository files:"
           ls -la
 
-          ZIP_FILE="$(find . -maxdepth 1 -type f \( -iname "*HaoAYou*.zip" -o -iname "*haoyou*.zip" -o -iname "*好啊有*.zip" \) | sort | head -n 1 || true)"
+          # Prefer the newest soft/minimal UI package, then other HaoAYou packages, then any ZIP.
+          ZIP_FILE="$(find . -maxdepth 1 -type f \( -iname "*soft*minimal*.zip" -o -iname "*minimal*ui*.zip" -o -iname "*soft*ui*.zip" \) | sort | head -n 1 || true)"
+
+          if [ -z "$ZIP_FILE" ]; then
+            ZIP_FILE="$(find . -maxdepth 1 -type f \( -iname "*HaoAYou*.zip" -o -iname "*haoyou*.zip" -o -iname "*好啊有*.zip" \) | sort | head -n 1 || true)"
+          fi
 
           if [ -z "$ZIP_FILE" ]; then
             ZIP_FILE="$(find . -maxdepth 1 -type f -iname "*.zip" | sort | head -n 1 || true)"
